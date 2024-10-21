@@ -3,6 +3,7 @@ import { isWeb, useIsomorphicLayoutEffect } from '@tamagui/constants'
 // MIT License Copyright (c) 2020 Mo Gorhom
 import { useEvent } from '@tamagui/core'
 // fixing SSR issue
+import { startTransition } from '@tamagui/start-transition'
 import type { ReactNode } from 'react'
 import React, {
   createContext,
@@ -14,7 +15,6 @@ import React, {
   useMemo,
   useReducer,
 } from 'react'
-import { startTransition } from '@tamagui/start-transition'
 import { createPortal } from 'react-dom'
 
 interface PortalType {
@@ -288,7 +288,6 @@ function PortalHostWeb(props: PortalHostProps) {
     <div
       style={{
         display: 'contents',
-        // pointerEvents: 'none',
       }}
       ref={(node) => {
         if (node) {
@@ -319,10 +318,13 @@ function PortalHostNonNative(props: PortalHostProps) {
       state.map((item) => {
         let next = item.node
 
+        // REMOVE children, can cause gnarly bugs (ask me how i know)
+        const { children, ...restForwardProps } = forwardProps
+
         if (forwardProps) {
           return React.Children.map(next, (child) => {
             return React.isValidElement(child)
-              ? React.cloneElement(child, { key: child.key, ...forwardProps })
+              ? React.cloneElement(child, { key: child.key, ...restForwardProps })
               : child
           })
         }
@@ -336,6 +338,8 @@ function PortalHostNonNative(props: PortalHostProps) {
 }
 
 export interface PortalItemProps {
+  passthrough?: boolean
+
   /**
    * Portal's key or name to be used as an identifier.
    * @type string
@@ -381,7 +385,7 @@ export const PortalItem = memo(function PortalItem(props: PortalItemProps) {
   if (isWeb) {
     return <PortalItemWeb {...props} />
   }
-  return <NonNativePortalComponent />
+  return <NonNativePortalComponent {...props} />
 })
 
 const PortalItemWeb = (props: PortalItemProps) => {
@@ -392,9 +396,6 @@ const PortalItemWeb = (props: PortalItemProps) => {
   const hostNode = allPortalHosts.get(props.hostName)
 
   if (!hostNode) {
-    if (process.env.NODE_ENV === 'development') {
-      console.warn(`No host node, may just need to wait a frame`)
-    }
     return null
   }
 
@@ -409,6 +410,7 @@ const NonNativePortalComponent = (props: PortalItemProps) => {
     handleOnUnmount: _providedHandleOnUnmount,
     handleOnUpdate: _providedHandleOnUpdate,
     children,
+    passthrough,
   } = props
 
   const { addPortal: addUpdatePortal, removePortal } = usePortal(hostName)
@@ -440,6 +442,8 @@ const NonNativePortalComponent = (props: PortalItemProps) => {
   })
 
   useIsomorphicLayoutEffect(() => {
+    if (passthrough) return
+
     handleOnMount()
     return () => {
       handleOnUnmount()
@@ -447,8 +451,10 @@ const NonNativePortalComponent = (props: PortalItemProps) => {
   }, [])
 
   useEffect(() => {
+    if (passthrough) return
+
     handleOnUpdate()
   }, [children])
 
-  return null
+  return passthrough ? children : null
 }
